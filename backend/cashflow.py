@@ -4,7 +4,8 @@ import csv
 import fitz
 from typing import Dict, List
 import re
-
+from liquidity import fetch_and_calculate_points, fetch_and_calculate_points_volume
+import couchdb
 import math
 
 company_no = 0
@@ -12,7 +13,7 @@ company_no = 0
 def update_msg(text: str):
     msg = {'msg': text}
     host_ip = 'localhost'
-    requests.post(f'http://{host_ip}:8000/update_cashflow/status', json= msg)
+    #requests.post(f'http://{host_ip}:8000/update_cashflow/status', json= msg)
 
 def get_market_cap(max_limit: str):
     # The URL of the CSV file
@@ -128,6 +129,9 @@ def get_annoucement(company_list: dict):
                         break
             else:
                 print(f"Failed to fetch announcements for {key}")
+                writer.writerow({'key': key, 'name': company_list[key]['name'], 'cap': company_list[key]['cap'], 'document_date': None, 'url': None, 'header': None})
+
+
 
 def find_word_after_position(text, phrase):
     words = text.split()
@@ -242,9 +246,9 @@ def process_and_verify_announcements(filename: str):
                 elif len(next_word) == 1 and next_word.isdigit():  # Check if 'next_word' is a single digit
                     cash_flow = 'check'
                 else:
-                    # Delete '*' if 'next_word' ends with it
-                    if next_word.endswith('*'):
-                        next_word = next_word[:-1]
+                    # Delete '*' if 'next_word' have it
+                    next_word = next_word.replace('*', '')
+
 
                     # Check if $ exists in 'line_after_phrases'
                     if '$' in line_after_phrases:
@@ -272,7 +276,6 @@ def process_and_verify_announcements(filename: str):
         writer.writeheader()
         for row in data:
             writer.writerow(row)
-
 
 def modify_and_sort_csv(filename: str):
     # Read the CSV file
@@ -302,9 +305,8 @@ def modify_and_sort_csv(filename: str):
         if new_row[cash_flow_index] != 'check':
             new_row[cash_flow_index] = float(new_row[cash_flow_index].replace(',', ''))
             new_rows.append(new_row)
-
-    # Sort the rows based on 'cash_flow'
-    new_rows.sort(key=lambda row: row[cash_flow_index], reverse=True)
+        else:
+            new_rows.append(new_row)
 
     # Write the modified and sorted rows back to the CSV file
     with open(filename, 'w', newline='') as file:
@@ -312,7 +314,7 @@ def modify_and_sort_csv(filename: str):
         writer.writerow(header)  # write the header
         writer.writerows(new_rows)  # write the rows
 
-
+'''''
 def fetch_and_calculate_points(days: int):
     global company_no
     base_url = 'https://www.asx.com.au/asx/1/share/'
@@ -390,8 +392,53 @@ def fetch_and_calculate_points(days: int):
         for row in data:
             writer.writerow(row)
     print("Output file 'result.csv' created.")
+'''''
 
-def generate_cashflow_doc(cap: int, days: int):
+
+def update_documents_with_cashflow():
+    couch = couchdb.Server('http://admin:admin@localhost:5984/')
+    db_name = 'stocks'
+    if db_name in couch:
+        db = couch[db_name]
+    else:
+        raise ValueError(f"Database '{db_name}' does not exist!")
+    with open('output.csv', 'r') as file:
+        reader = csv.reader(file)
+        next(reader)  # Skip the header row
+        for row in reader:
+            key = row[0]
+            name = row[1]
+            document_date = row[3]
+            url = row[4]
+            header = row[5]
+            cash_flow = (row[6])
+            dollar_sign = row[7]
+
+            if cash_flow.isdigit():
+                cash_flow = int(cash_flow)  # Convert to integer if it's a whole number
+
+
+            # Find the document in the database using the key/id
+            if key in db:
+                document = db[key]
+
+                # Add the 'cashflow' attribute and update other fields
+                document['cashflow'] = {
+                    'name': name,
+                    'document_date': document_date,
+                    'url': url,
+                    'header': header,
+                    'cash_flow': cash_flow,
+                    'dollar_sign': dollar_sign
+                }
+
+                # Save the updated document back to the database
+                db.save(document)
+                print(f"Document with key {key} updated with cashflow information.")
+            else:
+                print(f"Document with key {key} not found in the database.")
+
+def generate_cashflow_doc(cap: int):
     update_msg('updating the market cap')
     company_list = get_market_cap(cap)
 
@@ -400,17 +447,12 @@ def generate_cashflow_doc(cap: int, days: int):
 
 
     update_msg('reading cashflow announcement')
-    process_announcements("output.csv")
+    #process_announcements("output.csv")
 
     update_msg('checking the reading result')
-    process_and_verify_announcements("output.csv")
+    #process_and_verify_announcements("output.csv")
 
     update_msg('sorting and finalizng the cashflow')
-    modify_and_sort_csv("output.csv")
-
-    update_msg('calculating the liquidity scores')
-    fetch_and_calculate_points(days)
+    #modify_and_sort_csv("output.csv")
 
     update_msg('cashflow template is ready')
-
-
