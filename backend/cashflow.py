@@ -2,18 +2,15 @@ import requests
 import os
 import csv
 import fitz
-from typing import Dict, List
 import re
-from liquidity import fetch_and_calculate_points, fetch_and_calculate_points_volume
 import couchdb
-import math
 
 company_no = 0
 
 def update_msg(text: str):
     msg = {'msg': text}
     host_ip = 'localhost'
-    #requests.post(f'http://{host_ip}:8000/update_cashflow/status', json= msg)
+    requests.post(f'http://{host_ip}:8000/update_cashflow/status', json= msg)
 
 def get_market_cap(max_limit: str):
     # The URL of the CSV file
@@ -117,7 +114,7 @@ def get_annoucement(company_list: dict):
                     # Check if 'header' field contains any of the keywords
                     if any(keyword in item['header'].lower() for keyword in keywords):
                         # Add the new information to the company dictionary
-                        company_list[key]['document_date'] = item['document_date']
+                        company_list[key]['document_date'] = item['document_date'][0:10]
                         company_list[key]['url'] = item['url']
                         company_list[key]['header'] = item['header']
 
@@ -130,8 +127,6 @@ def get_annoucement(company_list: dict):
             else:
                 print(f"Failed to fetch announcements for {key}")
                 writer.writerow({'key': key, 'name': company_list[key]['name'], 'cap': company_list[key]['cap'], 'document_date': None, 'url': None, 'header': None})
-
-
 
 def find_word_after_position(text, phrase):
     words = text.split()
@@ -277,7 +272,7 @@ def process_and_verify_announcements(filename: str):
         for row in data:
             writer.writerow(row)
 
-def modify_and_sort_csv(filename: str):
+def formatting_csv(filename: str):
     # Read the CSV file
     with open(filename, 'r') as file:
         reader = csv.reader(file)
@@ -314,87 +309,6 @@ def modify_and_sort_csv(filename: str):
         writer.writerow(header)  # write the header
         writer.writerows(new_rows)  # write the rows
 
-'''''
-def fetch_and_calculate_points(days: int):
-    global company_no
-    base_url = 'https://www.asx.com.au/asx/1/share/'
-    suffix = f'/prices?interval=daily&count={days}'
-
-    # Load the existing data
-    with open("output.csv", 'r') as file:
-        reader = csv.DictReader(file)
-        data = [row for row in reader]
-        original_fieldnames = [f for f in data[0].keys()]
-
-    max_limit = 0
-    min_value = math.inf
-    average_traded_dollar_amounts = []
-
-    # Fetch data and calculate points
-    count = 0 
-    for row in data:
-        count = count +1
-        ticker = row['key']
-        msg = f'calculating the score for {ticker}, process {count}/{company_no}'
-        update_msg(msg)
-        url = base_url + ticker + suffix
-        print(url)
-        try:
-            r = requests.get(url, timeout=10)
-            response = r.json()
-
-            if 'data' in response.keys():
-                sum_volume = sum_amount = 0
-
-                for daily_data in response['data']:
-                    sum_volume += daily_data['volume']
-                    daily_avg_price = (daily_data['day_high_price'] + daily_data['day_low_price']) / 2
-                    sum_amount += daily_avg_price * daily_data['volume']
-
-                row['average volume'] = int(round(sum_volume / days))
-                row['average traded dollar amount'] = avg_amount = int(round(sum_amount / days))
-                average_traded_dollar_amounts.append(avg_amount)
-
-                # Update min_value
-                if avg_amount < min_value:
-                    min_value = avg_amount
-        except Exception as e:
-            print(f"Error fetching data for ticker {ticker}: {e}")
-            row['average volume'] = 0
-            row['average traded dollar amount'] = 0
-
-        row['points'] = 0  # Initialize points
-
-    # Find the 10th highest avg_traded_dollar_amount
-    average_traded_dollar_amounts.sort(reverse=True)
-    if len(average_traded_dollar_amounts) >= 10:
-        max_limit = average_traded_dollar_amounts[9]
-
-    # Calculate points based on the Fibonacci sequence
-    fibonacci = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89]
-
-    for row in data:
-        if row['average traded dollar amount'] >= max_limit:
-            row['points'] = 11
-        else:
-            percentage = (row['average traded dollar amount'] - min_value) / (max_limit - min_value)
-            for index, fib in enumerate(fibonacci):
-                if percentage < fib / 89:
-                    row['points'] = index + 1
-                    break
-
-    # Write the output to a new CSV file
-    with open('result.csv', 'w', newline='') as outfile:
-        fieldnames = original_fieldnames + ['average volume', 'average traded dollar amount', 'points']
-        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
-        writer.writeheader()
-
-        for row in data:
-            writer.writerow(row)
-    print("Output file 'result.csv' created.")
-'''''
-
-
 def update_documents_with_cashflow():
     couch = couchdb.Server('http://admin:admin@localhost:5984/')
     db_name = 'stocks'
@@ -415,8 +329,10 @@ def update_documents_with_cashflow():
             dollar_sign = row[7]
 
             if cash_flow.isdigit():
-                cash_flow = int(cash_flow)  # Convert to integer if it's a whole number
-
+                try:
+                    cash_flow = int(float(cash_flow))
+                except ValueError:
+                    print(f"'{cash_flow}' is not a valid number.")
 
             # Find the document in the database using the key/id
             if key in db:
@@ -445,14 +361,18 @@ def generate_cashflow_doc(cap: int):
     update_msg('retrieving cashflow announcement')
     get_annoucement(company_list)
 
-
     update_msg('reading cashflow announcement')
-    #process_announcements("output.csv")
+    process_announcements("output.csv")
 
     update_msg('checking the reading result')
-    #process_and_verify_announcements("output.csv")
+    process_and_verify_announcements("output.csv")
 
-    update_msg('sorting and finalizng the cashflow')
-    #modify_and_sort_csv("output.csv")
+    update_msg('finalizng the cashflow documents')
+    formatting_csv("output.csv")
 
-    update_msg('cashflow template is ready')
+    update_msg('updating database with cashflow')
+    update_documents_with_cashflow()
+
+    update_msg('cashflow template and database is ready')
+
+

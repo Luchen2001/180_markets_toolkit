@@ -8,6 +8,7 @@ import yfinance as yf
 from liquidity import fetch_and_calculate_points, fetch_and_calculate_points_volume
 import datetime
 import couchdb
+from concurrent.futures import ThreadPoolExecutor
 
 no_company = 1411
 
@@ -89,6 +90,7 @@ def get_stock_info(ticker: str) -> dict:
     except (KeyError, requests.exceptions.HTTPError):
         return "not found"
 
+'''''
 def update_general_info():
     count = 0
 
@@ -103,6 +105,29 @@ def update_general_info():
         raise ValueError(f"Database '{db_name}' does not exist!")
 
     for doc_id in db:
+        try:
+            # Get the stock information
+            updated_info = get_stock_info(doc_id)
+
+            # If the stock information is found, update the document
+            if updated_info != "not found":
+                doc = db[doc_id]
+                doc['info'] = updated_info  # store the updated_info in 'info' field
+                db.save(doc)
+                print(f"{doc_id} updated")
+                count = count + 1
+                percentage = round(count / no_company * 100, 1)
+                update_msg(f"Updating the database - Updating company information ({percentage}%) - {doc_id} updated")
+
+        except requests.exceptions.ReadTimeout:
+            print(f"Request for {doc_id} timed out. Continuing to next document.")
+            continue
+'''''
+
+# Use the threading to concurrently updating the geneal information from Yahoo Finance
+def general_info(args):
+    db, doc_id = args
+    try:
         # Get the stock information
         updated_info = get_stock_info(doc_id)
 
@@ -112,10 +137,32 @@ def update_general_info():
             doc['info'] = updated_info  # store the updated_info in 'info' field
             db.save(doc)
             print(f"{doc_id} updated")
-            count = count + 1
-            percentage = round(count / no_company * 100, 1)
-            update_msg(f"Updating the database - Updating company information ({percentage}%) - {doc_id} updated")
+            return 1
 
+    except requests.exceptions.ReadTimeout:
+        print(f"Request for {doc_id} timed out. Continuing to next document.")
+        return 0
+
+def update_general_info():
+    # Connect to server
+    update_msg(f"Updating the database - Updating General Info - This may take a while... (~3 mins)")
+    couch = couchdb.Server('http://admin:admin@localhost:5984/')  # Replace 'username' and 'password' with your actual credentials
+
+    # Access existing database or create it
+    db_name = 'stocks'
+    if db_name in couch:
+        db = couch[db_name]
+    else:
+        raise ValueError(f"Database '{db_name}' does not exist!")
+
+    args = [(db, doc_id) for doc_id in db]
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(general_info, args)
+
+    count = sum(results)
+    update_msg(f"Updating the database - Updated {count}/{no_company} of companies general information")
+
+'''''
 def update_market_info(days: int = 20):
     count = 0
 
@@ -157,6 +204,56 @@ def update_market_info(days: int = 20):
 
         except requests.exceptions.RequestException as e:
             print(f"Error fetching data for {doc_id}: {e}")
+'''''
+# Update the market info e.g. price and market cap, using ASX endpoint
+def market_info(doc_id, db, days):
+    base_url = 'https://www.asx.com.au/asx/1/share/'
+    suffix = f'/prices?interval=daily&count={days}'
+    url = base_url + doc_id + suffix
+    try:
+        response = requests.get(url, timeout=10).json()
+        if 'data' in response.keys():
+            doc = db[doc_id]
+            doc['price_data'] = response['data']  # store the fetched price data in 'price_data' field
+            
+            # calculate the new 'cap' if 'sharesOutstanding' and 'close_price' are available
+            if 'info' in doc and 'sharesOutstanding' in doc['info']:
+                shares_outstanding = doc['info']['sharesOutstanding']
+                if response['data']:
+                    latest_price_data = response['data'][0]  # assume the first element is the most recent
+                    if 'close_price' in latest_price_data:
+                        close_price = latest_price_data['close_price']
+                        doc['cap'] = shares_outstanding * close_price  # update 'cap'
+            
+            db.save(doc)
+            print(f'{doc_id} updated')
+            return 1, doc_id
+        return 0, doc_id
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data for {doc_id}: {e}")
+        return 0, doc_id
+
+
+def update_market_info(days: int = 20):
+    update_msg(f"Updating the database - Updating Market Info - This may take a while... (~2 mins)")
+    # Connect to server
+    couch = couchdb.Server('http://admin:admin@localhost:5984/')  # Replace 'username' and 'password' with your actual credentials
+
+    # Access existing database or create it
+    db_name = 'stocks'
+    if db_name in couch:
+        db = couch[db_name]
+    else:
+        raise ValueError(f"Database '{db_name}' does not exist!")
+
+    no_company = len(db)
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(market_info, db, [db]*no_company, [days]*no_company)
+        count = sum(1 for result in results if result[0] == 1)
+        percentage = round(count / no_company * 100, 1)
+        update_msg(f"Updating the database - Updated {count} / {no_company} of market info ({percentage}%)")
 
 def update_liquidity_cos(days: int = 20):
     count = 0
@@ -174,6 +271,7 @@ def update_liquidity_cos(days: int = 20):
     data = []
     EMA_traded_dollar_amounts = []
     fibonacci = [0.5, 1.5, 2.5, 3.5, 8, 13, 21, 34, 55, 89]
+    update_msg(f"Updating the database - Calculating liquidity scores")
 
     for doc_id in db:
         try:

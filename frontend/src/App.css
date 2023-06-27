@@ -1,12 +1,17 @@
-
-
 .nav-link {
-  font-size: 18px; 
+  font-size: 28px; 
   margin-right: 20px;
   transition: background-color 0.3s, color 0.3s;
+
 }
 
 .nav-link :hover {
   background-color: #f8f9fa;
   color: #007bff;
 }
+
+.nav-link.active {
+  color: blue; /* Change the color to your desired style */
+  font-weight: 600; /* Add any other styles you want */
+}
+

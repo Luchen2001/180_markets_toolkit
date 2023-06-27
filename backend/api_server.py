@@ -34,11 +34,14 @@ else:
     raise ValueError(f"Database '{db_name}' does not exist!")
 
 
+@app.get('/')
+async def root():
+    return {'name': 'api to connect to react'}
+
 @app.post('/update_database/status')
 async def update_data(update_data: dict):
     global database_msg
     database_msg = update_data
-
 
 @app.get('/database/status')
 async def get_cashflow_status():
@@ -62,7 +65,6 @@ async def update_liquidity_course_of_sales(background_tasks: BackgroundTasks):
 async def reboot_database(background_tasks: BackgroundTasks):
     create_stock_list(200000000)
 
-
 @app.get("/database/stocks/")
 async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int] = None, max_liquidity: Optional[int] = None):
     results = []
@@ -78,50 +80,86 @@ async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int
             
             price_data = doc.get('price_data')
             close_price = price_data[0]['close_price'] if price_data else None
+            cashflow = doc['cashflow'].get('cash_flow') if 'cashflow' in doc else None
+
+            market_cap = doc.get('cap')
+            ev = cashflow - market_cap if isinstance(cashflow, (int, float)) and isinstance(market_cap, (int, float)) else 'N/A'
+
 
             results.append({
                 "stock_code": doc_id,
                 "name": doc.get('name'),
-                "cap": doc.get('cap'),
+                "cap": market_cap,
                 "liquidity_score": doc.get('liquidity_score'),
                 "EMA_amount": doc.get('EMA_amount'),
                 "industry": doc['info'].get('industry') if 'info' in doc else None,
-                "price": close_price
+                "price": close_price,
+                "cashflow": cashflow,
+                "EV": ev
             })
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get('/')
-async def root():
-    return {'name': 'api to connect to react'}
-
 @app.get("/database/stocks/cashflow")
 async def get_all_stock_cashflows():
-    cashflows = {}
+    cashflows = []
     try:
         for doc_id in db:
             doc = db[doc_id]
             cashflow = doc.get('cashflow')
             if cashflow:
                 cashflow["stock_code"] = doc_id
-                cashflows[doc_id] = cashflow
-                
+                cashflow["name"] = doc["name"]
+                cashflow["cap"] = doc["cap"]
+                cashflows.append(cashflow)
+            else:
+                cashflows.append({
+                    "stock_code": doc_id,
+                    "name": doc["name"],
+                    "cap": doc["cap"],
+                    "document_date": "",
+                    "url": "",
+                    "header": "",
+                    "cash_flow": "check",
+                    "dollar_sign": ""
+                })
         return cashflows
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/database/stocks/update_cashflow/{code}")
+async def update_stock_cashflow(code: str, cashflow_data: dict):
+    try:
+        # Find the document with the provided code as the document ID
+        if code in db:
+            doc = db[code]
+        else:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        # Add or replace the cashflow attribute with the provided data
+        doc['cashflow'] = {
+            "document_date": cashflow_data["document_date"],
+            "url": cashflow_data["url"],
+            "header": cashflow_data["header"],
+            "cash_flow": cashflow_data["cash_flow"],
+            "dollar_sign": cashflow_data["dollar_sign"]
+        }
+
+        # Update the document in the database
+        db.save(doc)
+
+        return {"message": "Cashflow data updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/cashflow/{cap}/{day}")
-async def generate_cashflow(background_tasks: BackgroundTasks, cap: int, day: int):
+@app.get("/cashflow/{cap}/")
+async def generate_cashflow(background_tasks: BackgroundTasks, cap: int):
     global cap_temp
     cap_temp = cap
-    global day_temp
-    day_temp = day
-
-    background_tasks.add_task(generate_cashflow_doc, cap, day)
+    background_tasks.add_task(generate_cashflow_doc, cap)
 
 @app.get('/cashflow/status')
 async def get_cashflow_status():
@@ -135,8 +173,13 @@ async def update_data(update_data: dict):
 
 @app.get("/download/cashflow")
 async def download_csv():
-    file = "./result.csv"
+    file = "./output.csv"
     return FileResponse(file, media_type="text/csv", filename=f"cashflow_template_cap_{cap_temp}_day_{day_temp}.csv")
+
+
+
+
+
 
 
 # API endpoint for generating the placement performance tracking file
