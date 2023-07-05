@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Spinner, Table, Form, Button } from "react-bootstrap";
+import { saveAs } from 'file-saver';
+
 
 export default function Liquidity() {
   const [stocks, setStocks] = useState([]);
@@ -13,14 +15,16 @@ export default function Liquidity() {
     liquidityScore: true,
     EMA_amount: true,
     cashflow: true,
+    EV: true,
     industry: true,
-    EV: true
+    debt: true
   });
   const [maxMarketCap, setMaxMarketCap] = useState(200000000);
 
   useEffect(() => {
-    //const cachedStocks = localStorage.getItem('stocks');
-    const cachedStocks = false
+    //const cachedStocks = false
+    const cachedStocks = localStorage.getItem('stocks');
+
     if (cachedStocks) {
       setStocks(JSON.parse(cachedStocks));
       setLoading(false);
@@ -59,7 +63,7 @@ export default function Liquidity() {
       let validStocks = stocks.filter(stock => !(stock.cashflow === null || stock.cashflow === 'N/A' || stock.cashflow === 'check'));
       let invalidStocks = stocks.filter(stock => (stock.cashflow === null || stock.cashflow === 'N/A' || stock.cashflow === 'check'));
 
-      validStocks.sort((a, b) => b.cashflow - a.cashflow);
+      validStocks.sort((a, b) => a.cashflow - b.cashflow);
 
       setStocks([...validStocks, ...invalidStocks]);
     } else if (rankingCriteria === "score") {
@@ -68,8 +72,15 @@ export default function Liquidity() {
       setStocks(sortedStocks);
     } else if (rankingCriteria === "marketCap") {
       const sortedStocks = [...stocks];
-      sortedStocks.sort((a, b) => b.cap - a.cap);
+      sortedStocks.sort((a, b) => a.cap - b.cap);
       setStocks(sortedStocks);
+    } else if (rankingCriteria === "ev") {
+      let validStocks = stocks.filter(stock => !(stock.EV === 'N/A'));
+      let invalidStocks = stocks.filter(stock => stock.EV === 'N/A');
+
+      validStocks.sort((a, b) => a.EV - b.EV);
+
+      setStocks([...validStocks, ...invalidStocks]);
     }
   };
 
@@ -81,12 +92,17 @@ export default function Liquidity() {
       return 'N/A';
     } else if (value >= 1000000) {
       return (value / 1000000).toFixed(2) + 'M';
+    } else if (value <= -1000000) {
+      return (value / 1000000).toFixed(2) + 'M';
     } else if (value >= 1000) {
+      return (value / 1000).toFixed(2) + 'K';
+    } else if (value <= -1000) {
       return (value / 1000).toFixed(2) + 'K';
     } else {
       return value.toString();
     }
   };
+
 
   const toggleColumnVisibility = (column) => {
     setColumnVisibility(prevVisibility => ({
@@ -95,8 +111,60 @@ export default function Liquidity() {
     }));
   };
 
+  const downloadCSV = () => {
+    // Generate CSV data
+    const csvData = generateCSV(filteredStocks);
+
+    // Create a blob of the data
+    const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+
+    // Save the file to the user's machine
+    saveAs(blob, 'stocks.csv');
+  }
+
+  const generateCSV = (data) => {
+    // Convert cap to M units and round to 2 decimals for CSV
+    // Convert cashflow and EV with formatCashflow function
+    data = data.map(stock => {
+      let newStock = { ...stock };
+
+      if (newStock.cap !== null && newStock.cap !== 'N/A' && newStock.cap !== 'check') {
+        newStock.cap = formatCashflow(newStock.cap); // convert to M and round to 2 decimal places
+      }
+
+      if (newStock.cashflow !== null && newStock.cashflow !== 'N/A' && newStock.cashflow !== 'check') {
+        newStock.cashflow = formatCashflow(newStock.cashflow);
+      }
+
+      if (newStock.EV !== null && newStock.EV !== 'N/A') {
+        newStock.EV = formatCashflow(newStock.EV);
+      }
+
+      return newStock;
+    });
+
+    const replacer = (key, value) => value === null ? '' : value;
+    const header = Object.keys(data[0]);
+    let csv = data.map(row => header.map(fieldName => JSON.stringify(row[fieldName], replacer)).join(','));
+    csv.unshift(header.join(','));
+    csv = csv.join('\r\n');
+    return csv;
+  }
+
+
+
+
+
   return (
     <div className="container mt-1">
+      <Button
+        onClick={downloadCSV}
+        variant="outline-success"
+        size="sm"
+        style={{ margin: '10px' }}
+      >
+        Download CSV
+      </Button>
       <Button
         onClick={fetchStocks}
         variant="outline-success"
@@ -116,6 +184,7 @@ export default function Liquidity() {
           <option value="score">Score</option>
           <option value="marketCap">Market Cap</option>
           <option value="cashflow">Cashflow</option>
+          <option value="ev">Shell Value</option>
         </select>
         <Button onClick={sortStocks} variant="outline-secondary" size="sm">Sort</Button>
       </div>
@@ -152,6 +221,7 @@ export default function Liquidity() {
           <p>Loading...</p>
         </div>
       ) : (
+        <>
         <Table striped bordered hover style={{ marginTop: '20px' }}>
           <thead>
             <tr>
@@ -162,10 +232,10 @@ export default function Liquidity() {
               {columnVisibility.liquidityScore && <th>Liquidity Score</th>}
               {columnVisibility.EMA_amount && <th>EMA Amount</th>}
               {columnVisibility.cashflow && <th>Cashflow</th>}
+              {columnVisibility.debt && <th>debt</th>}
               {columnVisibility.EV && <th>Shell value</th>}
-              
               {columnVisibility.industry && <th>Industry</th>}
-              
+
             </tr>
           </thead>
           <tbody>
@@ -178,12 +248,23 @@ export default function Liquidity() {
                 {columnVisibility.liquidityScore && <td>{stock.liquidity_score}</td>}
                 {columnVisibility.EMA_amount && <td>{stock.EMA_amount}</td>}
                 {columnVisibility.cashflow && <td>{formatCashflow(stock.cashflow)}</td>}
-                {columnVisibility.EV && <td>{stock.EV}</td>}
+                {columnVisibility.debt && <td>{formatCashflow(stock.debt)}</td>}
+                {columnVisibility.EV && <td>{formatCashflow(stock.EV)}</td>}
                 {columnVisibility.industry && <td>{stock.industry}</td>}
+                <td>
+                  <Button
+                    onClick={() => window.open(`https://stocknessmonster.com/widgets/471720501658ddff/stock-full#${stock.stock_code}`, '_blank')}
+                    size="sm"
+                    variant="outline-info"
+                  >
+                    View
+                  </Button>
+                </td>
               </tr>
             ))}
           </tbody>
         </Table>
+        </>
       )}
     </div>
   );

@@ -81,10 +81,17 @@ async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int
             price_data = doc.get('price_data')
             close_price = price_data[0]['close_price'] if price_data else None
             cashflow = doc['cashflow'].get('cash_flow') if 'cashflow' in doc else None
+            debt = doc['cashflow'].get('debt') if 'cashflow' in doc else None
+            if debt == '' or debt == 'check':
+                debt = 0
+            if isinstance(cashflow, str):
+                try:
+                    cashflow = float(cashflow)
+                except ValueError:
+                    cashflow = None
 
             market_cap = doc.get('cap')
-            ev = cashflow - market_cap if isinstance(cashflow, (int, float)) and isinstance(market_cap, (int, float)) else 'N/A'
-
+            ev = int(market_cap - cashflow) if isinstance(cashflow, (int, float)) and isinstance(market_cap, (int, float)) and market_cap else 'N/A'
 
             results.append({
                 "stock_code": doc_id,
@@ -95,6 +102,7 @@ async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int
                 "industry": doc['info'].get('industry') if 'info' in doc else None,
                 "price": close_price,
                 "cashflow": cashflow,
+                "debt": debt,
                 "EV": ev
             })
         return results

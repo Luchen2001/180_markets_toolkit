@@ -14,4 +14,13 @@
   color: blue; /* Change the color to your desired style */
   font-weight: 600; /* Add any other styles you want */
 }
+.iframe-container {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* Adjust height and width as necessary */
+  height: 80vh;
+  width: 80vw;
+}
 
