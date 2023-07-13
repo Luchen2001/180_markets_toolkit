@@ -1,8 +1,6 @@
 import math
 import csv
 import requests
-import json
-from typing import List
 
 def update_msg(text: str):
     msg = {'msg': text}
@@ -86,7 +84,6 @@ def fetch_and_calculate_points_old(days: int):
         for row in data:
             writer.writerow(row)
     print("Output file 'result.csv' created.")
-
 
 def fetch_and_calculate_points(days: int):
     global company_no

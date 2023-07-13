@@ -1,16 +1,11 @@
 import requests
-import os
 import csv
-import fitz
-from typing import Dict, List
-import re
 import yfinance as yf
-from liquidity import fetch_and_calculate_points, fetch_and_calculate_points_volume
 import datetime
 import couchdb
 from concurrent.futures import ThreadPoolExecutor
 
-no_company = 1411
+no_company = 1414
 
 '''''
 # Connect to CouchDB server
@@ -23,7 +18,6 @@ if db_name in couch:
     db = couch[db_name]
 else:
     db = couch.create(db_name)
-
 
 '''''
 def update_msg(text: str):
@@ -75,7 +69,14 @@ def create_stock_list(max_limit: int):
             if cap < max_limit and len(code) == 3 and cap != 0:
                 # Create a new document for each stock
                 doc = {'name': name, 'cap': cap}
-                db[code] = doc
+                try:
+                    # Check if the document already exists
+                    existing_doc = db[code]
+                    print(f"Document with id {code} already exists.")
+                except couchdb.http.ResourceNotFound:
+                    # If not, create a new document
+                    db[code] = doc
+                    print(f"Created new document with id {code}.")
 
         print("Stock information stored successfully.")
     else:
@@ -130,7 +131,6 @@ def general_info(args):
     try:
         # Get the stock information
         updated_info = get_stock_info(doc_id)
-
         # If the stock information is found, update the document
         if updated_info != "not found":
             doc = db[doc_id]
@@ -138,9 +138,20 @@ def general_info(args):
             db.save(doc)
             print(f"{doc_id} updated")
             return 1
+        else:
+            with open("errors.txt", "a") as error_file:  # open the file in append mode
+                error_file.write(f"{doc_id} not found\n")  # write the error to the file
+            return 0
 
     except requests.exceptions.ReadTimeout:
         print(f"Request for {doc_id} timed out. Continuing to next document.")
+        with open("errors.txt", "a") as error_file:
+            error_file.write(f"Request for {doc_id} timed out\n")
+        return 0
+    except Exception as e:
+        print(f"An error occurred for {doc_id}: {str(e)}")
+        with open("errors.txt", "a") as error_file:
+            error_file.write(f"An error occurred for {doc_id}: {str(e)}\n")
         return 0
 
 def update_general_info():
@@ -160,7 +171,7 @@ def update_general_info():
         results = executor.map(general_info, args)
 
     count = sum(results)
-    update_msg(f"Updating the database - Updated {count}/{no_company} of companies general information")
+    update_msg(f"General Information Updated - Updated {count}/{no_company} of companies general information")
 
 '''''
 def update_market_info(days: int = 20):
@@ -215,7 +226,7 @@ def market_info(doc_id, db, days):
         if 'data' in response.keys():
             doc = db[doc_id]
             doc['price_data'] = response['data']  # store the fetched price data in 'price_data' field
-            
+
             # calculate the new 'cap' if 'sharesOutstanding' and 'close_price' are available
             if 'info' in doc and 'sharesOutstanding' in doc['info']:
                 shares_outstanding = doc['info']['sharesOutstanding']
@@ -224,7 +235,7 @@ def market_info(doc_id, db, days):
                     if 'close_price' in latest_price_data:
                         close_price = latest_price_data['close_price']
                         doc['cap'] = shares_outstanding * close_price  # update 'cap'
-            
+
             db.save(doc)
             print(f'{doc_id} updated')
             return 1, doc_id
@@ -233,7 +244,6 @@ def market_info(doc_id, db, days):
     except requests.exceptions.RequestException as e:
         print(f"Error fetching data for {doc_id}: {e}")
         return 0, doc_id
-
 
 def update_market_info(days: int = 20):
     update_msg(f"Updating the database - Updating Market Info - This may take a while... (~2 mins)")
@@ -281,7 +291,7 @@ def update_liquidity_cos(days: int = 20):
                 smoothing_factor = 2 / (days + 1)
                 EMA_amount = 0
 
-                for daily_data in reversed(doc['price_data'][-days:]):
+                for daily_data in reversed(doc['price_data'][:days-1]):
                     sum_volume += daily_data['volume']
                     daily_avg_price = (daily_data['day_high_price'] + daily_data['day_low_price']) / 2
                     current_amount = daily_avg_price * daily_data['volume']
@@ -291,6 +301,19 @@ def update_liquidity_cos(days: int = 20):
                         EMA_amount = current_amount
                     else:
                         EMA_amount = (current_amount * smoothing_factor) + (EMA_amount * (1 - smoothing_factor))
+
+                today_volume = doc['info'].get('volume') if 'info' in doc else None
+                today_price = doc['info'].get('currentPrice') if 'info' in doc else None
+                yesterday_volume = doc['price_data'][0].get('volume') if 'price_data' in doc else None
+                print(f'{doc_id} yesterday volume {yesterday_volume}')
+                today_amount = 0
+                if today_volume == yesterday_volume:
+                    today_volume = 0
+
+                else:
+                    today_amount = round(today_price * today_volume, 1) if today_price and today_volume else None
+                EMA_amount = (today_amount * smoothing_factor) + (EMA_amount * (1 - smoothing_factor))
+
 
                 average_volume = int(round(sum_volume / days))
 
@@ -340,5 +363,115 @@ def update_liquidity_cos(days: int = 20):
             update_msg(f"Updating the database - Updating liquidity scores ({percentage}%) - {doc_id} updated")
         except couchdb.http.ResourceConflict:
             print(f"Conflict while saving changes to document {doc_id}. Please resolve manually.")
+    update_msg(f"Liquidity Updated - {percentage}%")
 
+def update_mining_companies():
+    # Connect to server
+    couch = couchdb.Server('http://admin:admin@localhost:5984/')
 
+    # Access existing database or create it
+    db_name = 'stocks'
+    if db_name in couch:
+        db = couch[db_name]
+    else:
+        raise ValueError(f"Database '{db_name}' does not exist!")
+
+    # List of defined mining industries
+    mining_industries = [
+        'Coking Coal',
+        'Uranium',
+        'Other Industrial Metals & Mining',
+        'Gold',
+        'Oil & Gas E&P',
+        'Other Precious Metals & Mining',
+        'Thermal Coal',
+        'Aluminum',
+        'Coking Coal',
+        'Copper',
+        'Silver',
+        'Steel'
+    ]
+
+    # List of commodities
+    commodities = [
+    'Coking Coal',
+    'Uranium',
+    'Gold',
+    'Thermal Coal',
+    'Coal',
+    'Aluminum',
+    'Copper',
+    'Silver',
+    'Steel',
+    'Diamonds',
+    'Graphite',
+    'Tin',
+    'Tantalum',
+    'Potash',
+    'Phosphate',
+    'Oil Shale',
+    'Mineral Sands',
+    'Molybdenum',
+    'Cobalt',
+    'Lead',
+    'Bauxite',
+    'Tungsten',
+    'Iron Ore',
+    'Nickel',
+    'Zinc',
+    'Lithium',
+    'Manganese',
+    'Rare Earth',
+    'Gas',
+    'Oil',
+    'Salt',
+    'Opals',
+    'Kaolin',
+    'Gypsum',
+    'Peat',
+    'Sapphire',
+    'Barite',
+    'Bentonite',
+    'Zircon',
+    'Rutile',
+    'Ilmenite',
+    'Silica',
+    'Canadium',
+    'Titanium',
+    'Iron',
+    'Calcium Limestone',
+    'Helium',
+    'Hydrogen',
+    'Vanadium'
+    ]
+
+    # Loop through all documents in the database
+    for doc_id in db:
+        try:
+            doc = db[doc_id]
+
+            # Check if 'info' key exists in the document and 'industry' key exists in 'info' 
+            if 'info' in doc.keys() and 'industry' in doc['info'].keys():
+                # Check if the company's industry matches any of the defined mining industries
+                if doc['info']['industry'] in mining_industries:
+                    doc['isMiningComp'] = True
+                    # Get the company's long business summary
+                    summary = doc['info'].get('longBusinessSummary', '').lower()
+
+                    # Check for the presence of each commodity in the summary
+                    found_commodities = [commodity for commodity in commodities if commodity.lower() in summary]
+                    if found_commodities:
+                        doc['commodities'] = ', '.join(found_commodities)
+                else:
+                    doc['isMiningComp'] = False
+
+                # Save the updated document
+                db.save(doc)
+                print(f"{doc_id} isMiningComp updated")
+
+        except Exception as e:
+            print(f"Error updating for {doc_id}: {e}")
+
+def update_hubspot():
+    with open ("hubspot.csv", 'r') as csvfile:
+        reader = csv.DictReader(csvfile)

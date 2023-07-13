@@ -6,6 +6,11 @@ import re
 import couchdb
 
 company_no = 0
+cash_phrase = "(should equal item 4.6 above)"
+cash_unit_phrase = "related items in the accounts Current quarter"
+
+debt_phrase = "Total financing facilities"
+debt_unit_phrase = "Total facility amount at quarter end"
 
 def update_msg(text: str):
     msg = {'msg': text}
@@ -128,18 +133,7 @@ def get_annoucement(company_list: dict):
                 print(f"Failed to fetch announcements for {key}")
                 writer.writerow({'key': key, 'name': company_list[key]['name'], 'cap': company_list[key]['cap'], 'document_date': None, 'url': None, 'header': None})
 
-def find_word_after_position(text, phrase):
-    words = text.split()
-    phrase_words = phrase.split()
-    phrase_length = len(phrase_words)
-    for index, current_word in enumerate(words[:-phrase_length + 1]):
-        if words[index : index + phrase_length] == phrase_words:
-            if index + phrase_length < len(words):
-                return words[index + phrase_length]
-            else:
-                return None
-    return None
-
+'''''
 def find_line_after_phrases(text, phrases):
     lines = text.split('\n')
     phrase_idx = 0  # The index of the current phrase we're looking for
@@ -156,12 +150,23 @@ def find_line_after_phrases(text, phrases):
 
     # If we get here, we did not find all the phrases in sequence
     return None
+'''''
+
+def find_word_after_position(text, phrase, n_words_after=1):
+    words = text.split()
+    phrase_words = phrase.split()
+    phrase_length = len(phrase_words)
+    for index, current_word in enumerate(words[:-phrase_length + n_words_after]):
+        if words[index : index + phrase_length] == phrase_words:
+            if index + phrase_length + n_words_after - 1 < len(words):
+                return words[index + phrase_length + n_words_after - 1]
+            else:
+                return None
+    return None
 
 def process_announcements(filename: str):
     global company_no
     count = 0
-    search_phrase = "(should equal item 4.6 above)"
-    phrases_sequence = ["related items in the accounts", "Current quarter"]
     data = []
 
     with open(filename, 'r') as csvfile:
@@ -174,8 +179,15 @@ def process_announcements(filename: str):
             url = row['url']
 
             # Fetch the PDF document from the URL
-            response = requests.get(url)
-            response.raise_for_status()  # Will raise an exception if the request failed
+            for attempt in range(2):  # two attempts
+                try:
+                    response = requests.get(url)
+                    response.raise_for_status()  # Will raise an exception if the request failed
+                    break
+                except requests.exceptions.HTTPError:
+                    if attempt == 1:  # if it's the second attempt, skip this iteration
+                        print(f"Failed to fetch the document at url: {url}. Skipping...")
+                        continue
 
             # Open the PDF file with PyMuPDF
             pdf_data = response.content
@@ -185,17 +197,18 @@ def process_announcements(filename: str):
             text = ""
             for page in pdf_stream:
                 text += page.get_text()
-
+# Find the cashflow information 
             # Find the word after the search phrase
-            next_word = find_word_after_position(text, search_phrase)
-            if next_word:
-                print(f"For {row['key']}, the word after '{search_phrase}' in '{row['header']}' is '{next_word}'.")
-                row['next_word'] = next_word
+            cash = find_word_after_position(text, cash_phrase)
+            if cash:
+                print(f"For {row['key']}, the word after '{cash_phrase}' in '{row['header']}' is '{cash}'.")
+                row['cash'] = cash
             else:
                 print(
-                    f"For {row['key']}, the phrase '{search_phrase}' was not found in '{row['header']}' or it's the last word.")
-                row['next_word'] = None
+                    f"For {row['key']}, the phrase '{cash_phrase}' was not found in '{row['header']}' or it's the last word.")
+                row['cash'] = None
 
+            '''''
             # Find the line after 'phrases_sequence'
             line_after_phrases = find_line_after_phrases(text, phrases_sequence)
             if line_after_phrases:
@@ -205,7 +218,37 @@ def process_announcements(filename: str):
                 print(
                     f"For {row['key']}, the sequence '{phrases_sequence}' was not found in '{row['header']}'.")
                 row['line_after_phrases'] = None
+            '''''
+            cash_unit = find_word_after_position(text, cash_unit_phrase)
+            if cash_unit:
+                print(f"For {row['key']}, the line after '{cash_unit_phrase}' in '{row['header']}' is '{cash_unit_phrase}'.")
+                row['cash_unit'] = cash_unit
+            else:
+                print(
+                    f"For {row['key']}, the sequence '{cash_unit_phrase}' was not found in '{row['header']}'.")
+                row['cash_unit'] = None
+
+# Find the debt information 
+            debt = find_word_after_position(text, debt_phrase, 2)
+            if debt:
+                print(f"For {row['key']}, the word two places after '{debt_phrase}' in '{row['header']}' is '{debt}'.")
+                row['debt'] = debt
+            else:
+                print(
+                    f"For {row['key']}, the phrase '{debt_phrase}' was not found in '{row['header']}' or it's the last but one word.")
+                row['debt'] = None
+
+            debt_unit = find_word_after_position(text, debt_unit_phrase)
+            if debt_unit:
+                print(f"For {row['key']}, the word after '{debt_unit_phrase}' in '{row['header']}' is '{debt_unit}'.")
+                row['debt_unit'] = debt_unit
+            else:
+                print(
+                    f"For {row['key']}, the phrase '{debt_unit_phrase}' was not found in '{row['header']}' or it's the last word.")
+                row['debt_unit'] = None
+
             data.append(row)
+
 
     # Write the updated data back to the CSV file
     fieldnames = list(data[0].keys())
@@ -226,42 +269,79 @@ def process_and_verify_announcements(filename: str):
             print(f"Processing {count}/{total_rows}...")
             msg = f"Checking process {count}/{total_rows}..."
             update_msg(msg)
-            next_word = row.get('next_word', '').strip()
-            line_after_phrases = row.get('line_after_phrases', '').strip().replace("‘", "'").replace("’", "'")
+
+#process the cashflow columns
+            cash = row.get('cash', '').strip()
+            cash_unit = row.get('cash_unit', '').strip().replace("‘", "'").replace("’", "'")
             cash_flow = ''
             dollar_sign = ''
 
             # Check if any of the columns are empty
-            if not next_word or not line_after_phrases:
+            if not cash or not cash_unit:
                 cash_flow = 'check'
             else:
-                # Check if 'next_word' contains other characters than allowed
-                if not re.fullmatch(r"[\d,\-\*]*", next_word):
+                # Check if 'cash' contains other characters than allowed
+                if not re.fullmatch(r"[\d,\-\*]*", cash):
                     cash_flow = 'check'
-                elif len(next_word) == 1 and next_word.isdigit():  # Check if 'next_word' is a single digit
+                elif len(cash) == 1 and cash.isdigit():  # Check if 'cash' is a single digit
                     cash_flow = 'check'
                 else:
-                    # Delete '*' if 'next_word' have it
-                    next_word = next_word.replace('*', '')
+                    # Delete '*' if 'cash' have it
+                    cash = cash.replace('*', '')
 
 
-                    # Check if $ exists in 'line_after_phrases'
-                    if '$' in line_after_phrases:
-                        # Check if ' exists in 'line_after_phrases'
-                        if "'" in line_after_phrases:
-                            parts = line_after_phrases.split("'")
+                    # Check if $ exists in 'cash_unit'
+                    if '$' in cash_unit:
+                        # Check if ' exists in 'cash_unit'
+                        if "'" in cash_unit:
+                            parts = cash_unit.split("'")
                             dollar_sign = parts[0]
-                            cash_flow = next_word
+                            cash_flow = cash
                             if len(parts) > 1:
                                 cash_flow = cash_flow + "," + parts[1]
                         else:
-                            dollar_sign = line_after_phrases
-                            cash_flow = next_word
+                            dollar_sign = cash_unit
+                            cash_flow = cash
                     else:
                         cash_flow = 'check'
+#process the debt column
+            debt = row.get('debt', '').strip()
+            debt_unit = row.get('debt_unit', '').strip().replace("‘", "'").replace("’", "'")
+            debt_flow = ''
+
+            # Check if any of the columns are empty
+            if not debt or not debt_unit:
+                debt_flow = 'check'
+            else:
+                if not re.fullmatch(r"[\d,\-\*]*", debt):
+                    debt_flow = "check"
+                elif len(debt) == 1 and debt.isdigit():  # Check if 'debt' is a single digit
+                    debt_flow = "check"
+                elif '-' in debt:  # Check if 'debt' contains a '-'
+                    debt_flow = "0"
+                elif debt is None or debt.strip() == '':  # Check if 'debt' is None or an empty string
+                    debt_flow = "check"
+                else:
+                    # Delete '*' if 'debt' have it
+                    debt = debt.replace('*', '')
+
+                    # Check if $ exists in 'debt_unit'
+                    if '$' in debt_unit:
+                        # Check if ' exists in 'debt_unit'
+                        if "'" in debt_unit:
+                            parts = debt_unit.split("'")
+
+                            debt_flow = debt
+                            if len(parts) > 1:
+                                debt_flow = debt_flow + "," + parts[1]
+                        else:
+                            debt_flow = debt
+                    else:
+                        debt_flow = 'check'
 
             row['cash_flow'] = cash_flow
             row['dollar_sign'] = dollar_sign
+            row['debt_flow'] = debt_flow
             data.append(row)
 
     # Write the updated data back to the CSV file
@@ -277,18 +357,19 @@ def formatting_csv(filename: str):
     with open(filename, 'r') as file:
         reader = csv.reader(file)
         header = next(reader)  # get the header
-        
+
         rows = list(reader)
         rows = rows[1:]
 
     # Identify the indices of necessary columns
     cash_flow_index = header.index('cash_flow')
-    
-    other_columns = ['next_word', 'line_after_phrases']
+
+    other_columns = ['cash', 'cash_unit', 'debt', 'debt_unit']
     other_indices = [header.index(col) for col in other_columns]
-    header = [col for col in header if col not in ['next_word', 'line_after_phrases']]
+    header = [col for col in header if col not in ['cash', 'cash_unit','debt', 'debt_unit']]
     print(header)
     cash_flow_index = header.index('cash_flow')
+    debt_flow_index = header.index('debt_flow')
     print(cash_flow_index)
 
     # Remove unnecessary columns and convert 'cash_flow' to numeric
@@ -296,12 +377,18 @@ def formatting_csv(filename: str):
     for row in rows:
         new_row = [val for i, val in enumerate(row) if i not in other_indices]
         print(new_row)
+
+        # Convert 'debt_flow' to numeric (assuming it's a string of a number)
+        if new_row[debt_flow_index] != 'check':
+            new_row[debt_flow_index] = float(new_row[debt_flow_index].replace(',', ''))
+
         # Convert 'cash_flow' to numeric (assuming it's a string of a number)
         if new_row[cash_flow_index] != 'check':
             new_row[cash_flow_index] = float(new_row[cash_flow_index].replace(',', ''))
-            new_rows.append(new_row)
-        else:
-            new_rows.append(new_row)
+        
+        new_rows.append(new_row)
+
+        
 
     # Write the modified and sorted rows back to the CSV file
     with open(filename, 'w', newline='') as file:
@@ -327,6 +414,7 @@ def update_documents_with_cashflow():
             header = row[5]
             cash_flow = (row[6])
             dollar_sign = row[7]
+            debt_flow = row[8]
 
             if cash_flow.isdigit():
                 try:
@@ -345,6 +433,7 @@ def update_documents_with_cashflow():
                     'url': url,
                     'header': header,
                     'cash_flow': cash_flow,
+                    'debt': debt_flow,
                     'dollar_sign': dollar_sign
                 }
 
@@ -353,6 +442,7 @@ def update_documents_with_cashflow():
                 print(f"Document with key {key} updated with cashflow information.")
             else:
                 print(f"Document with key {key} not found in the database.")
+
 
 def generate_cashflow_doc(cap: int):
     update_msg('updating the market cap')
@@ -374,5 +464,3 @@ def generate_cashflow_doc(cap: int):
     update_documents_with_cashflow()
 
     update_msg('cashflow template and database is ready')
-
-

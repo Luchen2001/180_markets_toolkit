@@ -12,6 +12,7 @@ export default function Cashflow() {
     url: '',
     header: '',
     cash_flow: '',
+    debt:'',
     dollar_sign: '',
   });
   const [updateMessage, setUpdateMessage] = useState('');
@@ -106,6 +107,7 @@ export default function Cashflow() {
           url: '',
           header: '',
           cash_flow: '',
+          debt: '',
           dollar_sign: '',
         });
       } else {
@@ -118,6 +120,7 @@ export default function Cashflow() {
   
 
   useEffect(() => {
+    //const cachedData = false
     const cachedData = localStorage.getItem('cashflowData');
     if (cachedData) {
       setCashflowData(JSON.parse(cachedData));
@@ -228,6 +231,13 @@ export default function Cashflow() {
               onChange={(e) => setCashflowInput({ ...cashflowInput, cash_flow: e.target.value })}
             />
             <Form.Control
+              style={{ width: '200px', marginRight: '10px' }}
+              type="text"
+              placeholder="Debt"
+              value={cashflowInput.debt}
+              onChange={(e) => setCashflowInput({ ...cashflowInput, debt: e.target.value })}
+            />
+            <Form.Control
               style={{ width: '80px', marginRight: '10px' }}
               type="text"
               placeholder="$ Sign"
@@ -258,6 +268,7 @@ export default function Cashflow() {
                   <th>URL</th>
                   <th>Header</th>
                   <th>Cash Flow</th>
+                  <th>Debt</th>
                   <th>Dollar Sign</th>
                 </tr>
               </thead>
@@ -275,6 +286,7 @@ export default function Cashflow() {
                     </td>
                     <td>{cashflow.header}</td>
                     <td>{cashflow.cash_flow}</td>
+                    <td>{cashflow.debt}</td>
                     <td>{cashflow.dollar_sign}</td>
                   </tr>
                 ))}
