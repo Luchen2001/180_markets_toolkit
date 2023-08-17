@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Form, Button, Alert, Container, Table, InputGroup, Toast, Spinner } from 'react-bootstrap';
+import { serverURL } from './config';
 
 export default function Cashflow() {
-  const serverURL = 'http://localhost:8000';
   const [cap, setCap] = useState(200);
   const [cashflowStatus, setCashflowStatus] = useState('');
   const [isDownloadAvailable, setIsDownloadAvailable] = useState(false);
@@ -174,7 +174,7 @@ export default function Cashflow() {
           </Form.Group>
 
           <Button variant="primary" onClick={handleGenerateCashflow}>
-            Update Cashflow
+            Update Cashflow Data
           </Button>
 
           <Alert variant="info" style={{ marginTop: '20px', maxWidth: '500px' }}>
@@ -196,49 +196,49 @@ export default function Cashflow() {
         <Form style={{ marginTop: '20px', display: 'flex', flexWrap: 'wrap' }}>
           <InputGroup>
             <Form.Control
-              style={{ width: '100px', marginRight: '10px' }}
+              style={{ width: '100px', marginRight: '5px' }}
               type="text"
               placeholder="Code"
               value={cashflowInput.code}
               onChange={(e) => setCashflowInput({ ...cashflowInput, code: e.target.value })}
             />
             <Form.Control
-              style={{ width: '100px', marginRight: '10px' }}
+              style={{ width: '100px', marginRight: '5px' }}
               type="date"
               placeholder="Date"
               value={cashflowInput.document_date}
               onChange={(e) => setCashflowInput({ ...cashflowInput, document_date: e.target.value })}
             />
             <Form.Control
-              style={{ width: '100px', marginRight: '10px' }}
+              style={{ width: '100px', marginRight: '5px' }}
               type="text"
               placeholder="URL"
               value={cashflowInput.url}
               onChange={(e) => setCashflowInput({ ...cashflowInput, url: e.target.value })}
             />
             <Form.Control
-              style={{ width: '200px', marginRight: '10px' }}
+              style={{ width: '150px', marginRight: '5px' }}
               type="text"
               placeholder="Header"
               value={cashflowInput.header}
               onChange={(e) => setCashflowInput({ ...cashflowInput, header: e.target.value })}
             />
             <Form.Control
-              style={{ width: '200px', marginRight: '10px' }}
+              style={{ width: '150px', marginRight: '5px' }}
               type="text"
               placeholder="Cash Flow"
               value={cashflowInput.cash_flow}
               onChange={(e) => setCashflowInput({ ...cashflowInput, cash_flow: e.target.value })}
             />
             <Form.Control
-              style={{ width: '200px', marginRight: '10px' }}
+              style={{ width: '150px', marginRight: '5px' }}
               type="text"
               placeholder="Debt"
               value={cashflowInput.debt}
               onChange={(e) => setCashflowInput({ ...cashflowInput, debt: e.target.value })}
             />
             <Form.Control
-              style={{ width: '80px', marginRight: '10px' }}
+              style={{ width: '80px', marginRight: '5px' }}
               type="text"
               placeholder="$ Sign"
               value={cashflowInput.dollar_sign}

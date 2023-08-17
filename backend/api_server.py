@@ -2,13 +2,12 @@ from typing import Optional
 from fastapi import FastAPI, File, HTTPException, UploadFile, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-import os
 from cashflow import generate_cashflow_doc
-from placement import generate_files
-from database import update_general_info, update_market_info, update_liquidity_cos, create_stock_list, update_mining_companies
-import datetime
+from placement import generate_placement_spreadsheet,update_msg
+from database import update_general_info, update_market_info, update_liquidity_cos, create_stock_list, update_mining_companies, update_hubspot, update_market_live_data
 import couchdb
 from statistics import mean
+from config import host_ip
 
 app = FastAPI()
 origins = ["*"]
@@ -27,12 +26,18 @@ cap_temp = 0
 day_temp = 0
 
 
-couch = couchdb.Server('http://admin:admin@localhost:5984/')
+couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')
 db_name = 'stocks'
 if db_name in couch:
     db = couch[db_name]
 else:
-    raise ValueError(f"Database '{db_name}' does not exist!")
+     db = couch.create(db_name)
+
+placement_db_name = 'placements'
+if placement_db_name in couch:
+    placement_db = couch[placement_db_name]
+else:
+    placement_db = couch.create(placement_db_name)
 
 
 @app.get('/')
@@ -68,13 +73,17 @@ async def update_mining_companies_list(background_tasks: BackgroundTasks):
 
 @app.get("/update_database/new_day_update")
 async def update_all(background_tasks: BackgroundTasks):
-    background_tasks.add_task(update_general_info)
     background_tasks.add_task(update_market_info)
+    background_tasks.add_task(update_market_live_data)
     background_tasks.add_task(update_liquidity_cos)
+
+@app.get("/update_database/realtime_volume_update")
+async def update_all(background_tasks: BackgroundTasks):
+    background_tasks.add_task(update_market_live_data)
 
 @app.get("/update_database/realtime_liquidity_update")
 async def update_all(background_tasks: BackgroundTasks):
-    background_tasks.add_task(update_general_info)
+    background_tasks.add_task(update_market_live_data)
     background_tasks.add_task(update_liquidity_cos)
 
 @app.get("/reboot_database")
@@ -89,11 +98,13 @@ async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int
             doc = db[doc_id]
             if max_cap is not None and 'cap' in doc and doc['cap'] > max_cap:
                 continue
+            '''''
             if min_liquidity is not None and 'liquidity_score' in doc and doc['liquidity_score'] < min_liquidity:
                 continue
             if max_liquidity is not None and 'liquidity_score' in doc and doc['liquidity_score'] > max_liquidity:
                 continue
-            
+            '''''
+
             price_data = doc.get('price_data')
             close_price = price_data[0]['close_price'] if price_data else None
 
@@ -102,8 +113,9 @@ async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int
             yesterday_mean_price = mean([price_data[0]['day_high_price'], price_data[0]['day_low_price']]) if len(price_data) > 0 else None
             yesterday_amount = round(yesterday_mean_price * yesterday_volume, 1) if yesterday_mean_price and yesterday_volume else None
 
-            today_volume = doc['info'].get('volume') if 'info' in doc else None
-            today_price = doc['info'].get('currentPrice') if 'info' in doc else None
+            today_volume = doc['live_data'].get('volume') if 'live_data' in doc else None
+            today_price = doc['live_data'].get('last_price') if 'live_data' in doc else None
+            price_change = doc['live_data'].get('price_change') if 'live_data' in doc else None
             if today_volume == yesterday_volume:
                 today_volume = ''
                 today_amount = ''
@@ -133,10 +145,24 @@ async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int
                 except ValueError:
                     debt = None
 
-            market_cap = doc.get('cap')
+            market_cap = doc['live_data'].get('cap') if 'live_data' in doc else None
 
             debt_temp = debt if isinstance(debt, (int, float)) else 0
             ev = int(market_cap - cashflow + debt_temp) if isinstance(cashflow, (int, float)) and isinstance(market_cap, (int, float)) and market_cap else 'N/A'
+
+            #cashflow information
+            document_date = 'Missing'
+            url = 'Missing'
+            header = 'Missing'
+            dollar_sign = 'Missing'
+
+            cashflow_info = doc.get('cashflow')
+            if cashflow:
+                document_date = cashflow_info['document_date']
+                url = cashflow_info['url']
+                header = cashflow_info['header']
+                dollar_sign = cashflow_info['dollar_sign']
+
             results.append({
                 "stock_code": doc_id,
                 "name": doc.get('name'),
@@ -146,9 +172,18 @@ async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int
                 "price": close_price,
                 "cashflow": cashflow,
                 "debt": debt,
+
+                ## duplicate the cashflow
+                "document_date": document_date,
+                "url": url,
+                "header": header,
+                "dollar_sign": dollar_sign,
+
                 "EV": ev,
                 "price_today": today_price,
+                "price_change": price_change,
                 "volume_today": today_volume,
+                
                 "volume": yesterday_volume,
                 "volume_5d": avg_5_days_volume,
                 "amount_today": today_amount,
@@ -157,6 +192,10 @@ async def read_stocks(max_cap: Optional[int] = None, min_liquidity: Optional[int
                 "industry": doc['info'].get('industry') if 'info' in doc else None,
                 "isMining": doc.get('isMiningComp'),
                 "commodities": doc.get('commodities'),
+                "availability": doc["hubspot"].get("Company Rating") if 'hubspot' in doc else None,
+                "owner": doc["hubspot"].get("Company owner") if 'hubspot' in doc else None,
+
+                
             })
         return results
     except Exception as e:
@@ -169,16 +208,17 @@ async def get_all_stock_cashflows():
         for doc_id in db:
             doc = db[doc_id]
             cashflow = doc.get('cashflow')
+            cap = doc['live_data'].get('cap') if 'live_data' in doc else None
             if cashflow:
                 cashflow["stock_code"] = doc_id
                 cashflow["name"] = doc["name"]
-                cashflow["cap"] = doc["cap"]
+                cashflow["cap"] = cap
                 cashflows.append(cashflow)
             else:
                 cashflows.append({
                     "stock_code": doc_id,
                     "name": doc["name"],
-                    "cap": doc["cap"],
+                    "cap": cap,
                     "document_date": "",
                     "url": "",
                     "header": "",
@@ -242,13 +282,78 @@ async def download_csv():
     file = "./output.csv"
     return FileResponse(file, media_type="text/csv", filename=f"cashflow_template_cap_{cap_temp}_day_{day_temp}.csv")
 
-# API endpoint for generating the placement performance tracking file
+# API endpoint for updating the hubspot information to the database
 @app.post("/upload_hubspot")
-async def update_hubspot_file(file: UploadFile = File(...)):
+async def update_hubspot_file(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     with open("hubspot.csv", "wb") as buffer:
         buffer.write(await file.read())
+    background_tasks.add_task(update_hubspot)
     return {"filename": "hubspot.csv"}
 
+
+# API endpoint for calculating returns of the deals
+@app.post("/upload_placement")
+async def create_upload_file(file: UploadFile = File(...)):
+    with open("deals.csv", "wb") as buffer:
+        buffer.write(await file.read())
+    return {"filename": "placement.csv"}
+
+@app.post("/placement/generate")
+async def call_generate_files(background_tasks: BackgroundTasks, day_list:dict):
+    print(day_list['day_list'])
+    background_tasks.add_task(generate_placement_spreadsheet, day_list['day_list'])
+    return {"message": "Processing in the background"}
+
+@app.get("/placement/download/deals")
+async def download_placement_file():
+    file = "./deals_result.csv"
+    return FileResponse(file, media_type="text/csv", filename=f"deals_return.csv")
+    
+
+@app.post('/update_placement/status')
+async def update_data(update_data: dict):
+    global placement_msg
+    placement_msg = update_data
+
+@app.get('/placement/status')
+async def get_placement_status():
+    global placement_msg
+    return placement_msg
+
+
+'''''
+# ---------Legacy-------------
+@app.post('/update_placement')
+async def update_data(update_data: dict):
+    update_placement(update_data)
+@app.get('/placement/{code}')
+async def get_placement(code: str):
+    try:
+        # Find the document with the provided code as the document ID
+        if code in placement_db:
+            doc = placement_db[code]
+        else:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        result = doc.get("raise")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/placement_deals')
+async def get_deal_list():
+    print('test')
+    try:
+        # Find the document with the provided code as the document ID
+        if 'LIST' in placement_db:
+            doc = placement_db['LIST']
+            print(doc)
+        else:
+            print('not found')
+            raise HTTPException(status_code=404, detail="Document not found")
+        return doc.get('List')
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # API endpoint for generating the placement performance tracking file
 @app.post("/upload_placement")
@@ -289,6 +394,6 @@ async def download_placement_file(file_type: str):
 async def download_placement_file():
     file = "./example.csv"
     return FileResponse(file, media_type="text/csv", filename=f"placement_input_example.csv")
-
+'''''
 
 

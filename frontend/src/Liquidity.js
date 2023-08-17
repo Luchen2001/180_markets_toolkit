@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Spinner, Table, Form, Button } from "react-bootstrap";
 import { saveAs } from 'file-saver';
+import { serverURL } from './config';
 
 
 export default function Liquidity() {
+
   const [stocks, setStocks] = useState([]);
   const [rankingCriteria, setRankingCriteria] = useState("score");
   const [loading, setLoading] = useState(true);
@@ -18,6 +20,7 @@ export default function Liquidity() {
     EV: true,
     debt: true,
     price_today: true,
+    price_change: true,
     volume_today: true,
     volume: true,
     volume_5d: false,
@@ -26,7 +29,10 @@ export default function Liquidity() {
     amount_5d: false,
     industry: true,
     isMining: false,
-    commodities: true,
+    commodities: false,
+    availability: false,
+    owner: false,
+    cashflow_details: false,
   });
   const [maxMarketCap, setMaxMarketCap] = useState(200000000);
   const [column, setcolumn] = useState(false);
@@ -61,7 +67,7 @@ export default function Liquidity() {
   const fetchStocks = async () => {
     try {
       setLoading(true);
-      const response = await fetch("http://localhost:8000/database/stocks");
+      const response = await fetch(`${serverURL}/database/stocks`);
       const data = await response.json();
       setStocks(data);
       localStorage.setItem('stocks', JSON.stringify(data));  // Store data in localStorage
@@ -132,6 +138,20 @@ export default function Liquidity() {
       validStocks.sort((a, b) => b.amount_today - a.amount_today);
 
       setStocks([...validStocks, ...invalidStocks]);
+    } else if (rankingCriteria === "priceChange+") {
+      const sortedStocks = [...stocks];
+      sortedStocks.sort((a, b) => b.price_change - a.price_change);
+      setStocks(sortedStocks);
+    } else if (rankingCriteria === "priceChange-") {
+      const sortedStocks = [...stocks];
+      sortedStocks.sort((a, b) => a.price_change - b.price_change);
+      setStocks(sortedStocks);
+    } else if (rankingCriteria === "documentDate") {
+      let validStocks = stocks.filter(stock => !(stock.document_date === null || stock.document_date === 'Missing'));
+      let invalidStocks = stocks.filter(stock => (stock.document_date === null || stock.document_date === 'Missing'));
+
+      validStocks.sort((a, b) => new Date(b.document_date) - new Date(a.document_date));
+      setStocks([...validStocks, ...invalidStocks]);
     }
   };
 
@@ -142,13 +162,13 @@ export default function Liquidity() {
     if (value === null || value === 'check' || value === 'N/A') {
       return 'N/A';
     } else if (value >= 1000000) {
-      return (value / 1000000).toFixed(2) + 'M';
+      return (value / 1000000).toFixed(2);
     } else if (value <= -1000000) {
-      return (value / 1000000).toFixed(2) + 'M';
+      return (value / 1000000).toFixed(2);
     } else if (value >= 1000) {
-      return (value / 1000).toFixed(2) + 'K';
+      return (value / 1000000).toFixed(4);
     } else if (value <= -1000) {
-      return (value / 1000).toFixed(2) + 'K';
+      return (value / 1000000).toFixed(4);
     } else {
       return value.toString();
     }
@@ -230,13 +250,13 @@ export default function Liquidity() {
         <div className='d-flex align-items-center' >
           <Button
             variant="outline-secondary"
-            style={{ marginRight: '40px' }}
+            style={{ marginRight: '30px' }}
             onClick={handleColumnChange}
             size="sm"
           >
             {column ? 'Hide Columns Filter' : 'Show Columns Filter'}
           </Button>
-          <div style={{ display: 'flex', marginRight: '40px' }}>
+          <div style={{ display: 'flex', marginRight: '30px' }}>
             <label htmlFor="rankingCriteria" style={{ paddingRight: '1vw' }}>Ranking Criteria:</label>
             <select
               id="rankingCriteria"
@@ -250,10 +270,13 @@ export default function Liquidity() {
               <option value="volumeToday">Today Volume</option>
               <option value="volumeYesterday">Yesterday Volume</option>
               <option value="amountToday">Today Amount</option>
+              <option value="priceChange+">Price Change +</option>
+              <option value="priceChange-">Price Change -</option>
+              <option value="documentDate">Document Date</option>
             </select>
             <Button onClick={sortStocks} variant="outline-secondary" size="sm">Sort</Button>
           </div>
-          <div style={{ display: 'flex', marginRight: '40px' }}>
+          <div style={{ display: 'flex', marginRight: '30px' }}>
             <label htmlFor="maxMarketCap" style={{ paddingRight: '1vw' }}>Max Market Cap (M): {maxMarketCap / 1000000} M</label>
             <input
               type="range"
@@ -266,7 +289,7 @@ export default function Liquidity() {
             />
           </div>
 
-          <div style={{ marginRight: '40px' }}>
+          <div style={{ marginRight: '30px' }}>
             <label htmlFor="showMiningOnly">Mining Companies: </label>
             <input type="checkbox" id="showMiningOnly" checked={showMiningOnly} onChange={toggleShowMiningOnly} />
           </div>
@@ -280,6 +303,7 @@ export default function Liquidity() {
             Download CSV
           </Button>
         </div>
+
         <div>
           <label htmlFor="searchTerm" style={{ marginTop: '10px' }}>Search:</label>
           <input
@@ -321,8 +345,13 @@ export default function Liquidity() {
                 {columnVisibility.EMA_amount && <th>EMA Amount</th>}
                 {columnVisibility.cashflow && <th>Cashflow</th>}
                 {columnVisibility.debt && <th>debt</th>}
+                {columnVisibility.cashflow_details && <th>4C Date</th>}
+                {columnVisibility.cashflow_details && <th>4C URL</th>}
+                {columnVisibility.cashflow_details && <th>4C Header</th>}
+                {columnVisibility.cashflow_details && <th>Dollar Sign</th>}
                 {columnVisibility.EV && <th>Shell value</th>}
                 {columnVisibility.price_today && <th>price_today</th>}
+                {columnVisibility.price_change && <th>price_change</th>}
                 {columnVisibility.volume_today && <th>Today Volume</th>}
                 {columnVisibility.volume && <th>Yesterday Volume</th>}
                 {columnVisibility.volume_5d && <th>Past 5 days Volume</th>}
@@ -332,6 +361,9 @@ export default function Liquidity() {
                 {columnVisibility.industry && <th>Industry</th>}
                 {columnVisibility.isMining && <th>isMining</th>}
                 {columnVisibility.commodities && <th>Commodities</th>}
+                {columnVisibility.availability && <th>Availability</th>}
+                {columnVisibility.owner && <th>Owner</th>}
+
 
               </tr>
             </thead>
@@ -346,8 +378,17 @@ export default function Liquidity() {
                   {columnVisibility.EMA_amount && <td>{stock.EMA_amount}</td>}
                   {columnVisibility.cashflow && <td>{formatCashflow(stock.cashflow)}</td>}
                   {columnVisibility.debt && <td>{formatCashflow(stock.debt)}</td>}
+                  {columnVisibility.cashflow_details && <td>{stock.document_date}</td>}
+                  {columnVisibility.cashflow_details && <td>
+                      <Button variant="primary" onClick={() => window.open(stock.url, '_blank')}>
+                        View
+                      </Button>
+                    </td>}
+                  {columnVisibility.cashflow_details && <td>{stock.header}</td>}
+                  {columnVisibility.cashflow_details && <td>{stock.dollar_sign}</td>}
                   {columnVisibility.EV && <td>{formatCashflow(stock.EV)}</td>}
                   {columnVisibility.price_today && <td>{stock.price_today}</td>}
+                  {columnVisibility.price_change && <td>{stock.price_change}%</td>}
                   {columnVisibility.volume_today && <td>{stock.volume_today}</td>}
                   {columnVisibility.volume && <td>{stock.volume}</td>}
                   {columnVisibility.volume_5d && <td>{stock.volume_5d}</td>}
@@ -357,6 +398,10 @@ export default function Liquidity() {
                   {columnVisibility.industry && <td>{stock.industry}</td>}
                   {columnVisibility.isMining && <td>{stock.isMining ? "yes" : "not"}</td>}
                   {columnVisibility.commodities && <td>{stock.commodities}</td>}
+                  {columnVisibility.availability && <td>{stock.availability}</td>}
+                  {columnVisibility.owner && <td>{stock.owner}</td>}
+
+
                   <td>
                     <Button
                       onClick={() => window.open(`https://stocknessmonster.com/widgets/471720501658ddff/stock-full#${stock.stock_code}`, '_blank')}

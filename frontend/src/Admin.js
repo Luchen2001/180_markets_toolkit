@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Button, Form, Spinner, Alert, InputGroup, FormControl, Container, Row, Col, ToggleButton } from "react-bootstrap";
-
-const BASE_URL = "http://localhost:8000";
+import { Button, Form, Spinner, Alert, InputGroup, FormControl} from "react-bootstrap";
+import { serverURL } from './config';
 
 const Admin = () => {
   const [databaseStatus, setDatabaseStatus] = useState("");
@@ -11,7 +10,7 @@ const Admin = () => {
 
   const fetchDatabaseStatus = async () => {
     try {
-      let response = await fetch(`${BASE_URL}/database/status`);
+      let response = await fetch(`${serverURL}/database/status`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       } else {
@@ -38,7 +37,7 @@ const Admin = () => {
     setIsLoading(true);
     const formData = new FormData();
     formData.append('file', selectedFile);
-    await fetch(`${BASE_URL}/upload_hubspot`, {
+    await fetch(`${serverURL}/upload_hubspot`, {
       method: 'POST',
       body: formData,
     });
@@ -47,7 +46,7 @@ const Admin = () => {
 
 
   const updateGeneralInfo = () => {
-    axios.get(`${BASE_URL}/update_database/general_info`)
+    axios.get(`${serverURL}/update_database/general_info`)
       .then(() => {
         window.alert('General info updated');
       })
@@ -57,7 +56,7 @@ const Admin = () => {
   };
 
   const updateMarketInfo = () => {
-    axios.get(`${BASE_URL}/update_database/market_info`)
+    axios.get(`${serverURL}/update_database/market_info`)
       .then(() => {
         window.alert('Market info updated');
       })
@@ -67,7 +66,7 @@ const Admin = () => {
   };
 
   const updateLiquidityCOS = () => {
-    axios.get(`${BASE_URL}/update_database/liquidity_cos`)
+    axios.get(`${serverURL}/update_database/liquidity_cos`)
       .then(() => {
         window.alert('Liquidity Course Of Sales updated');
       })
@@ -77,7 +76,7 @@ const Admin = () => {
   };
 
   const updateMiningComp = () => {
-    axios.get(`${BASE_URL}/update_database/mining_comp`)
+    axios.get(`${serverURL}/update_database/mining_comp`)
       .then(() => {
         window.alert('Mining companies list updated');
       })
@@ -87,7 +86,7 @@ const Admin = () => {
   };
 
   const newDayUpdate = () => {
-    axios.get(`${BASE_URL}/update_database/new_day_update`)
+    axios.get(`${serverURL}/update_database/new_day_update`)
       .then(() => {
         window.alert('Start to update all data in the datebase');
       })
@@ -97,12 +96,22 @@ const Admin = () => {
   };
 
   const realtimeLiquidityUpdate = () => {
-    axios.get(`${BASE_URL}/update_database/realtime_liquidity_update`)
+    axios.get(`${serverURL}/update_database/realtime_liquidity_update`)
       .then(() => {
         window.alert('Start to update real-time liquidity scores');
       })
       .catch(error => {
-        window.alert('Error updating Mining companies list: ' + error);
+        window.alert('Error updating real-time liquidity scores: ' + error);
+      });
+  };
+
+  const realtimeVolumeUpdate = () => {
+    axios.get(`${serverURL}/update_database/realtime_volume_update`)
+      .then(() => {
+        window.alert('Start to update real-time volume');
+      })
+      .catch(error => {
+        window.alert('Error updating real-time volume: ' + error);
       });
   };
 
@@ -110,7 +119,7 @@ const Admin = () => {
     const confirmed = window.confirm('Are you sure you want to reboot the database? This action cannot be undone.');
 
     if (confirmed) {
-      axios.get(`${BASE_URL}/reboot_database`)
+      axios.get(`${serverURL}/reboot_database`)
         .then(() => {
           window.alert('Database rebooted');
         })
@@ -141,16 +150,16 @@ const Admin = () => {
             Real Time Liquidity Update
           </button>
         </div>
+        <div className="col">
+          <button className="btn btn-success" onClick={realtimeVolumeUpdate}>
+            Real Time Volume Update
+          </button>
+        </div>
       </div>
       <div className="row mt-4">
         <div className="col">
-          <button className="btn btn-primary" onClick={updateGeneralInfo}>
-            Update General Info (Volume)
-          </button>
-        </div>
-        <div className="col">
           <button className="btn btn-primary" onClick={updateMarketInfo}>
-            Update Market Info (Price)
+            Update Market Info (Past Price)
           </button>
         </div>
         <div className="col">
@@ -161,6 +170,11 @@ const Admin = () => {
         <div className="col">
           <button className="btn btn-primary" onClick={updateMiningComp}>
             Update Mining Company List
+          </button>
+        </div>
+        <div className="col">
+          <button className="btn btn-primary" onClick={updateGeneralInfo}>
+            Update General Info
           </button>
         </div>
       </div>

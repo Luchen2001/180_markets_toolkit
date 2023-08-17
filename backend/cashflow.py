@@ -4,6 +4,7 @@ import csv
 import fitz
 import re
 import couchdb
+from config import host_ip
 
 company_no = 0
 cash_phrase = "(should equal item 4.6 above)"
@@ -12,10 +13,11 @@ cash_unit_phrase = "related items in the accounts Current quarter"
 debt_phrase = "Total financing facilities"
 debt_unit_phrase = "Total facility amount at quarter end"
 
+
 def update_msg(text: str):
     msg = {'msg': text}
-    host_ip = 'localhost'
     requests.post(f'http://{host_ip}:8000/update_cashflow/status', json= msg)
+
 
 def get_market_cap(max_limit: str):
     # The URL of the CSV file
@@ -115,20 +117,21 @@ def get_annoucement(company_list: dict):
                 data = response.json()
 
                 # Loop through each item in the data
-                for item in data['data']:
-                    # Check if 'header' field contains any of the keywords
-                    if any(keyword in item['header'].lower() for keyword in keywords):
-                        # Add the new information to the company dictionary
-                        company_list[key]['document_date'] = item['document_date'][0:10]
-                        company_list[key]['url'] = item['url']
-                        company_list[key]['header'] = item['header']
+                if 'data' in data:
+                    for item in data['data']:
+                        # Check if 'header' field contains any of the keywords
+                        if any(keyword in item['header'].lower() for keyword in keywords):
+                            # Add the new information to the company dictionary
+                            company_list[key]['document_date'] = item['document_date'][0:10]
+                            company_list[key]['url'] = item['url']
+                            company_list[key]['header'] = item['header']
 
-                        # Write the company's data to the CSV file
-                        writer.writerow({'key': key, **company_list[key]})
-                        print('progress: ', count, '/', no_company)
-                        msg = f'retrieving progress: {count}/{no_company}'
-                        update_msg(msg)
-                        break
+                            # Write the company's data to the CSV file
+                            writer.writerow({'key': key, **company_list[key]})
+                            print('progress: ', count, '/', no_company)
+                            msg = f'retrieving progress: {count}/{no_company}'
+                            update_msg(msg)
+                            break
             else:
                 print(f"Failed to fetch announcements for {key}")
                 writer.writerow({'key': key, 'name': company_list[key]['name'], 'cap': company_list[key]['cap'], 'document_date': None, 'url': None, 'header': None})
@@ -220,8 +223,12 @@ def process_announcements(filename: str):
                 row['line_after_phrases'] = None
             '''''
             cash_unit = find_word_after_position(text, cash_unit_phrase)
+            cash_unit2 = find_word_after_position(text, cash_unit_phrase, 2)
             if cash_unit:
-                print(f"For {row['key']}, the line after '{cash_unit_phrase}' in '{row['header']}' is '{cash_unit_phrase}'.")
+                print(f"For {row['key']}, the line after '{cash_unit_phrase}' in '{row['header']}' is '{cash_unit}'.")
+                print(f"Then after that, For {row['key']}, the line after '{cash_unit_phrase}' in '{row['header']}' is '{cash_unit2}'.")
+                if '000' in cash_unit2:
+                    cash_unit = None
                 row['cash_unit'] = cash_unit
             else:
                 print(
@@ -292,9 +299,22 @@ def process_and_verify_announcements(filename: str):
 
                     # Check if $ exists in 'cash_unit'
                     if '$' in cash_unit:
+                        print(f"for {cash}, $ exist ， cash unit: ${cash_unit}")
                         # Check if ' exists in 'cash_unit'
                         if "'" in cash_unit:
                             parts = cash_unit.split("'")
+                            dollar_sign = parts[0]
+                            cash_flow = cash
+                            if len(parts) > 1:
+                                cash_flow = cash_flow + "," + parts[1]
+                        elif "ʼ" in cash_unit:
+                            parts = cash_unit.split("ʼ")
+                            dollar_sign = parts[0]
+                            cash_flow = cash
+                            if len(parts) > 1:
+                                cash_flow = cash_flow + "," + parts[1]
+                        elif "‘" in cash_unit:
+                            parts = cash_unit.split("‘")
                             dollar_sign = parts[0]
                             cash_flow = cash
                             if len(parts) > 1:
@@ -346,7 +366,7 @@ def process_and_verify_announcements(filename: str):
 
     # Write the updated data back to the CSV file
     fieldnames = list(data[0].keys())
-    with open(filename, 'w', newline='') as csvfile:
+    with open("output2.csv", 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         for row in data:
@@ -397,13 +417,13 @@ def formatting_csv(filename: str):
         writer.writerows(new_rows)  # write the rows
 
 def update_documents_with_cashflow():
-    couch = couchdb.Server('http://admin:admin@localhost:5984/')
+    couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')
     db_name = 'stocks'
     if db_name in couch:
         db = couch[db_name]
     else:
         raise ValueError(f"Database '{db_name}' does not exist!")
-    with open('output.csv', 'r') as file:
+    with open('output2.csv', 'r') as file:
         reader = csv.reader(file)
         next(reader)  # Skip the header row
         for row in reader:
@@ -458,7 +478,7 @@ def generate_cashflow_doc(cap: int):
     process_and_verify_announcements("output.csv")
 
     update_msg('finalizng the cashflow documents')
-    formatting_csv("output.csv")
+    formatting_csv("output2.csv")
 
     update_msg('updating database with cashflow')
     update_documents_with_cashflow()

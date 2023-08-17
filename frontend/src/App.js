@@ -23,11 +23,11 @@ function App() {
           <Navbar.Toggle aria-controls="basic-navbar-nav" />
           <Navbar.Collapse id="basic-navbar-nav">
             <Nav className="ml-auto" style={{fontSize: "3vh"}}> {/* Use ml-auto class to center the links */}
-              <Nav.Link as={NavLink} to="/" className="nav-link" activeClassName="active">Home</Nav.Link>
-              <Nav.Link as={NavLink} to="/admin" className="nav-link" activeClassName="active">Admin</Nav.Link>
-              <Nav.Link as={NavLink} to="/placement" className="nav-link" activeClassName="active">Placement</Nav.Link>
-              <Nav.Link as={NavLink} to="/cashflow" className="nav-link" activeClassName="active">Cashflow</Nav.Link>
-              <Nav.Link as={NavLink} to="/liquidity" className="nav-link" activeClassName="active">Liquidity</Nav.Link>
+              <Nav.Link as={NavLink} to="/" className="nav-link" >Home</Nav.Link>
+              <Nav.Link as={NavLink} to="/admin" className="nav-link" >Admin</Nav.Link>
+              <Nav.Link as={NavLink} to="/placement" className="nav-link">Placement</Nav.Link>
+              <Nav.Link as={NavLink} to="/cashflow" className="nav-link" >Cashflow</Nav.Link>
+              <Nav.Link as={NavLink} to="/stocks" className="nav-link">Stocks</Nav.Link>
             </Nav>
           </Navbar.Collapse>
         </Navbar>
@@ -37,7 +37,7 @@ function App() {
           <Route path="/admin" element={<Admin />} />
           <Route path="/placement" element={<Placement />} />
           <Route path="/cashflow" element={<Cashflow />} />
-          <Route path="/liquidity" element={<Liquidity />} />
+          <Route path="/stocks" element={<Liquidity />} />
         </Routes>
       </div>
     </Router>

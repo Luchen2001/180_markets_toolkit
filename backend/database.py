@@ -4,12 +4,13 @@ import yfinance as yf
 import datetime
 import couchdb
 from concurrent.futures import ThreadPoolExecutor
+from config import host_ip
 
 no_company = 1414
 
 '''''
 # Connect to CouchDB server
-couch = couchdb.Server('http://admin:admin@localhost:5984/')  # Assuming the server is locally hosted
+couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')  # Assuming the server is locally hosted
 
 # Access existing database or create it
 # Access existing database or create it
@@ -22,7 +23,7 @@ else:
 '''''
 def update_msg(text: str):
     msg = {'msg': text}
-    host_ip = 'localhost'
+    
     try:
         response = requests.post(f'http://{host_ip}:8000/update_database/status', json=msg)
         response.raise_for_status()  # This will raise a Python exception if the response returned a HTTP error status code
@@ -46,7 +47,7 @@ def create_stock_list(max_limit: int):
         header = next(csv_reader)
 
         # Connect to server
-        couch = couchdb.Server('http://admin:admin@localhost:5984/') 
+        couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/') 
 
         # Access existing database or create it
         db_name = 'stocks'
@@ -91,40 +92,6 @@ def get_stock_info(ticker: str) -> dict:
     except (KeyError, requests.exceptions.HTTPError):
         return "not found"
 
-'''''
-def update_general_info():
-    count = 0
-
-    # Connect to server
-    couch = couchdb.Server('http://admin:admin@localhost:5984/')  # Replace 'username' and 'password' with your actual credentials
-
-    # Access existing database or create it
-    db_name = 'stocks'
-    if db_name in couch:
-        db = couch[db_name]
-    else:
-        raise ValueError(f"Database '{db_name}' does not exist!")
-
-    for doc_id in db:
-        try:
-            # Get the stock information
-            updated_info = get_stock_info(doc_id)
-
-            # If the stock information is found, update the document
-            if updated_info != "not found":
-                doc = db[doc_id]
-                doc['info'] = updated_info  # store the updated_info in 'info' field
-                db.save(doc)
-                print(f"{doc_id} updated")
-                count = count + 1
-                percentage = round(count / no_company * 100, 1)
-                update_msg(f"Updating the database - Updating company information ({percentage}%) - {doc_id} updated")
-
-        except requests.exceptions.ReadTimeout:
-            print(f"Request for {doc_id} timed out. Continuing to next document.")
-            continue
-'''''
-
 # Use the threading to concurrently updating the geneal information from Yahoo Finance
 def general_info(args):
     db, doc_id = args
@@ -157,7 +124,7 @@ def general_info(args):
 def update_general_info():
     # Connect to server
     update_msg(f"Updating the database - Updating General Info - This may take a while... (~3 mins)")
-    couch = couchdb.Server('http://admin:admin@localhost:5984/')  # Replace 'username' and 'password' with your actual credentials
+    couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')  # Replace 'username' and 'password' with your actual credentials
 
     # Access existing database or create it
     db_name = 'stocks'
@@ -173,49 +140,6 @@ def update_general_info():
     count = sum(results)
     update_msg(f"General Information Updated - Updated {count}/{no_company} of companies general information")
 
-'''''
-def update_market_info(days: int = 20):
-    count = 0
-
-    # Connect to server
-    couch = couchdb.Server('http://admin:admin@localhost:5984/')  # Replace 'username' and 'password' with your actual credentials
-
-    # Access existing database or create it
-    db_name = 'stocks'
-    if db_name in couch:
-        db = couch[db_name]
-    else:
-        raise ValueError(f"Database '{db_name}' does not exist!")
-
-    base_url = 'https://www.asx.com.au/asx/1/share/'
-    suffix = f'/prices?interval=daily&count={days}'
-
-    for doc_id in db:
-        url = base_url + doc_id + suffix
-        try:
-            response = requests.get(url, timeout=10).json()
-
-            if 'data' in response.keys():
-                doc = db[doc_id]
-                doc['price_data'] = response['data']  # store the fetched price data in 'price_data' field
-                
-                # calculate the new 'cap' if 'sharesOutstanding' and 'close_price' are available
-                if 'info' in doc and 'sharesOutstanding' in doc['info']:
-                    shares_outstanding = doc['info']['sharesOutstanding']
-                    if response['data']:
-                        latest_price_data = response['data'][0]  # assume the first element is the most recent
-                        if 'close_price' in latest_price_data:
-                            close_price = latest_price_data['close_price']
-                            doc['cap'] = shares_outstanding * close_price  # update 'cap'
-                
-                db.save(doc)
-                count = count + 1
-                percentage = round(count / no_company * 100, 1)
-                update_msg(f"Updating the database - Updating market cap ({percentage}%)  - {doc_id} updated")
-
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching data for {doc_id}: {e}")
-'''''
 # Update the market info e.g. price and market cap, using ASX endpoint
 def market_info(doc_id, db, days):
     base_url = 'https://www.asx.com.au/asx/1/share/'
@@ -248,7 +172,7 @@ def market_info(doc_id, db, days):
 def update_market_info(days: int = 20):
     update_msg(f"Updating the database - Updating Market Info - This may take a while... (~2 mins)")
     # Connect to server
-    couch = couchdb.Server('http://admin:admin@localhost:5984/')  # Replace 'username' and 'password' with your actual credentials
+    couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')  # Replace 'username' and 'password' with your actual credentials
 
     # Access existing database or create it
     db_name = 'stocks'
@@ -269,7 +193,7 @@ def update_liquidity_cos(days: int = 20):
     count = 0
 
     # Connect to server
-    couch = couchdb.Server('http://admin:admin@localhost:5984/')  # Replace 'username' and 'password' with your actual credentials
+    couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')  # Replace 'username' and 'password' with your actual credentials
 
     # Access existing database or create it
     db_name = 'stocks'
@@ -302,19 +226,18 @@ def update_liquidity_cos(days: int = 20):
                     else:
                         EMA_amount = (current_amount * smoothing_factor) + (EMA_amount * (1 - smoothing_factor))
 
-                today_volume = doc['info'].get('volume') if 'info' in doc else None
-                today_price = doc['info'].get('currentPrice') if 'info' in doc else None
-                yesterday_volume = doc['price_data'][0].get('volume') if 'price_data' in doc else None
-                print(f'{doc_id} yesterday volume {yesterday_volume}')
+                today_volume = doc['live_data'].get('volume') if 'live_data' in doc else 0
+                today_price = doc['live_data'].get('last_price') if 'live_data' in doc else 0
+                yesterday_volume = doc['price_data'][0].get('volume') if 'price_data' in doc else 0
                 today_amount = 0
                 if today_volume == yesterday_volume:
                     today_volume = 0
 
                 else:
-                    today_amount = round(today_price * today_volume, 1) if today_price and today_volume else None
+                    today_amount = round(today_price * today_volume, 1) if (today_price is not None) and (today_volume is not None) else 0
                 EMA_amount = (today_amount * smoothing_factor) + (EMA_amount * (1 - smoothing_factor))
 
-
+                sum_volume = sum_volume + today_volume
                 average_volume = int(round(sum_volume / days))
 
                 # Update the document with the new fields
@@ -363,11 +286,11 @@ def update_liquidity_cos(days: int = 20):
             update_msg(f"Updating the database - Updating liquidity scores ({percentage}%) - {doc_id} updated")
         except couchdb.http.ResourceConflict:
             print(f"Conflict while saving changes to document {doc_id}. Please resolve manually.")
-    update_msg(f"Liquidity Updated - {percentage}%")
+    update_msg(f"Liquidity Update Finished - {percentage}% of which updated")
 
 def update_mining_companies():
     # Connect to server
-    couch = couchdb.Server('http://admin:admin@localhost:5984/')
+    couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')
 
     # Access existing database or create it
     db_name = 'stocks'
@@ -472,6 +395,102 @@ def update_mining_companies():
         except Exception as e:
             print(f"Error updating for {doc_id}: {e}")
 
+def market_live_data(doc_id, db):
+    url = f"https://www.asx.com.au/asx/1/share/{doc_id}"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            doc = db[doc_id]
+            data = response.json()
+
+            # calculate the live 'market cap'
+            if 'last_price' in data and 'number_of_shares' in data:
+                data['cap'] = data['last_price']*data['number_of_shares']
+
+            if 'last_price' in data and 'previous_close_price' in data:
+                data['price_change'] = round(100 * (data['last_price'] - data['previous_close_price']) / data['previous_close_price'], 2)
+            else:
+                data['price_change'] = 0
+
+            doc['live_data'] = data  # store the fetched live data (volume/price/market cap/no_shares) in 'live_data' field
+
+            db.save(doc)
+            print(f'{doc_id} updated')
+            return 1, doc_id
+        return 0, doc_id
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data for {doc_id}: {e}")
+        return 0, doc_id
+
+#function to update the real-time price/volume/no_shares/cap
+def update_market_live_data():
+    update_msg(f"Updating the database - Updating Live Market Data - This may take one minutes")
+    # Connect to server
+    couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')  # Replace 'username' and 'password' with your actual credentials
+
+    # Access existing database or create it
+    db_name = 'stocks'
+    if db_name in couch:
+        db = couch[db_name]
+    else:
+        raise ValueError(f"Database '{db_name}' does not exist!")
+
+    no_company = len(db)
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = executor.map(market_live_data, db, [db]*no_company)
+        count = sum(1 for result in results if result[0] == 1)
+        percentage = round(count / no_company * 100, 1)
+        update_msg(f"Updating the database - Updated {count} / {no_company} of live market data ({percentage}%)")
+    now = datetime.datetime.now()
+    update_msg(f"Live data updated at {now} ")
+
 def update_hubspot():
-    with open ("hubspot.csv", 'r') as csvfile:
-        reader = csv.DictReader(csvfile)
+    update_msg("Hubspot spreadsheet has been successfully uploaded")
+
+    # Connect to server
+    couch = couchdb.Server(f'http://admin:admin@{host_ip}:5984/')
+
+    # Access existing database or create it
+    db_name = 'stocks'
+    if db_name in couch:
+        db = couch[db_name]
+    else:
+        raise ValueError(f"Database '{db_name}' does not exist!")
+    
+    ticker_dict = {}
+
+    with open("hubspot.csv", 'r') as csvfile:
+        reader = csv.reader(csvfile)
+        header = next(reader)
+        ticker_index = header.index("Ticker")
+        rating_index = header.index("Company Rating")
+        owner_index = header.index("Company owner")
+
+        for row in reader:
+            ticker = row[ticker_index]
+            if ticker != '':
+                try:
+                    rating = int(row[rating_index])
+                except ValueError:
+                    rating = row[rating_index]
+                owner = row[owner_index]
+                # Store information in the dictionary using Ticker as the key
+                ticker_dict[ticker] = {
+                    "Company Rating": rating,
+                    "Company owner": owner
+                }
+    ticker_dict = {k: ticker_dict[k] for k in reversed(ticker_dict)}
+
+    update_msg('Updating the Hubspot data ... this may take ~ 1 min')
+    for key in ticker_dict:
+        if key in db:
+            document = db[key]
+            document['hubspot'] = ticker_dict[key]
+            db.save(document)
+            print(f"Document with key {key} updated with cashflow information.")
+        else:
+            print(f"Document with key {key} not found in the database.")
+
+    update_msg('[Finished] Hubspot data has been populated to database successfully')

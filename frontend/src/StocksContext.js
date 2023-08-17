@@ -1,4 +1,5 @@
 import React, { useEffect, useState, createContext, useContext } from "react";
+import { serverURL } from './config';
 
 const StocksContext = createContext();
 
@@ -12,7 +13,7 @@ export function StocksProvider({ children }) {
   useEffect(() => {
     const fetchStocks = async () => {
       try {
-        const response = await fetch("http://localhost:8000/database/stocks");
+        const response = await fetch(`${serverURL}/database/stocks`);
         const data = await response.json();
         setStocks(data);
       } catch (error) {
